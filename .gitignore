@@ -1,0 +1,30 @@
+# --- Entornos Virtuales y Dependencias ---
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# --- Archivos de Sistema y Editores ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# --- Secretos y Configuración (¡MUY IMPORTANTE!) ---
+.env
+*.log
+config/secrets.yml
+auth.json
+
+# --- Compilados y Temporales ---
+dist/
+build/
+out/
+tmp/
+output/
+runs/
+data/
+src/pruebas.py

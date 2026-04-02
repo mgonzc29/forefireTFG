@@ -1,0 +1,23 @@
+{
+  "name": "PyForeFire DevContainer",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspaces/APIForefire",
+  "settings": {
+    "python.defaultInterpreterPath": "/usr/bin/python3"
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-python.vscode-pylance"
+  ],
+  "runArgs": [
+    "--env-file","./.env"
+  ],
+  "postCreateCommand": "cd bindings/python && python3 setup.py build_ext --inplace && pip3 install -e .",
+  "remoteEnv": {
+    "NETCDF_HOME": "/usr",
+    "LD_LIBRARY_PATH": "/workspaces/integracionForefire/forefire/lib:/usr/lib/x86_64-linux-gnu"
+  }
+}

@@ -1,109 +1,88 @@
+import os
 import re
-from typing import List
+from typing import Annotated, List, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field
 from kombu import Connection, Exchange, Queue
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from simulator import Simulator 
+RABBIT_URL = os.getenv("RABBIT_URL")
+RABBIT_EXCHANGE = os.getenv("RABBIT_EXCHANGE")
+RABBIT_ROUTING_KEY = os.getenv("RABBIT_ROUTING_KEY")
 
-
+RABBIT_QUEUE = "forefire_simulations_queue"
+RABBIT_DLQ_QUEUE = "cola_dlq"
 
 #definimos la forma de las estructuras de datos que nos tienen que llegar
-class SafetyBaseModel(BaseModel):
-    #En este modelo defino decoradores para limpiar determinados tipos de datos
-    @field_validator('*', mode='before')
-    @classmethod
-    def check_malicious_strings(cls, v):
-        if isinstance(v, str):
-            dangerous_patterns = [
-                r"<script.*?>", 
-                r"drop\s+table", 
-                r"delete\s+from",
-                r"truncate\s+table",
-                r"insert\s+into",
-                r"--", # Comentarios SQL
-                r"<\s*[^>]*>" # Cualquier etiqueta HTML
-            ]
-            
-            v_lower = v.lower()
-            for pattern in dangerous_patterns:
-                if re.search(pattern, v_lower):
-                    raise ValueError(f"Contenido potencialmente peligroso detectado en el campo.")
-            
-            # 2. Opcional: Limpiar espacios en blanco innecesarios
-            return v.strip()
-        return v
+def validate_safety(v):
+    if isinstance(v, str):
+        dangerous = [r"<script.*?>", r"drop\s+table", r"delete\s+from", r"--", r"<\s*[^>]*>"]
+        if any(re.search(p, v.lower()) for p in dangerous):
+            raise ValueError("Contenido peligroso detectado")
+        return v.strip()
+    return v
 
-#to do esto creo que da error asi que tengo que quitarlo
-class TextParameter(SafetyBaseModel):
-    param: str
+# 2. EL TIPO "TEXTO SEGURO"
+SafeStr = Annotated[str, BeforeValidator(validate_safety)]
 
-class MeteoVariable(SafetyBaseModel):
-    ID: str
-    VARIABLE: str
+# 3. EL TIPO "PUNTO [LAT, LON]"
+# Esto valida rango y formato de una vez
+SafePoint = Tuple[
+    Annotated[float, Field(ge=-90, le=90)], 
+    Annotated[float, Field(ge=-180, le=180)]
+]
+
+# 4. MODELOS FINALES (Sin clases anidadas innecesarias)
+class MeteoVariable(BaseModel):
+    ID: SafeStr
+    VARIABLE: SafeStr
     VALORES: List[float]
 
-class MeteoData(SafetyBaseModel):
-    root: List[MeteoVariable]
+class SimulationParameters(BaseModel):
+    sim_id: int = Field(gt=0)
+    init_date_time: SafeStr
+    end_date_time: SafeStr
+    interval: int = Field(gt=0, le=86400)
+    geometry: List[List[SafePoint]] 
+    meteo_data: List[MeteoVariable]
+    firewalls: Optional[List[List[SafePoint]]] = None
 
-class Point(SafetyBaseModel):
-    lat: float = Field(ge=-90, le=90, description="Latitud entre -90 y 90")
-    lon: float = Field(ge=-180, le=180, description="Longitud entre -180 y 180")
-
-class Geometry(SafetyBaseModel):
-    geometry: List[List[Point]]
-
-class SimulationParameters(SafetyBaseModel):
-    sim_id: int = Field(gt=0, description="ID de simulación debe ser un entero positivo")
-    init_date_time: TextParameter
-    end_date_time: TextParameter
-    interval: int = Field(gt=0, le=86400, description="Intervalo en segundos")
-    geometry: Geometry
-    meteo_data: MeteoData
-
-
-class Settings(BaseSettings):
-    RABBIT_URL: str = Field(..., alias="RABBIT_URL")
-    RABBIT_EXCHANGE: str
-    RABBIT_QUEUE: str
-    RABBIT_ROUTING_KEY: str
-
-    S3_ACCESS_KEY: str 
-   
-    model_config = SettingsConfigDict(
-        env_file=".env",           
-        env_file_encoding="utf-8", 
-        extra="ignore"            
-    )
-
-settings = Settings()
 app = FastAPI()
-exchange = Exchange(settings.RABBIT_EXCHANGE, type="direct")
-queue = Queue(settings.RABBIT_QUEUE, exchange, routing_key=settings.RABBIT_ROUTING_KEY)
+exchange = Exchange(RABBIT_EXCHANGE, type="direct")
+dlq_queue = Queue(RABBIT_DLQ_QUEUE, exchange, routing_key="cola_dlq")
+queue = Queue(
+    RABBIT_QUEUE, 
+    exchange, 
+    routing_key=RABBIT_ROUTING_KEY,
+    queue_arguments={
+        'x-dead-letter-exchange': RABBIT_EXCHANGE,
+        'x-dead-letter-routing-key': RABBIT_DLQ_QUEUE
+    }
+)
 
 
-@app.post("api/v1/simulate/{model}", status_code=status.HTTP_202_ACCEPTED)
+@app.post("/api/v1/simulate/{model}", status_code=status.HTTP_202_ACCEPTED)
 def queue_simulation(
-    model: TextParameter, 
-    dump_mode: TextParameter = Query("geojson", alias="dumpmode"),
-    datos: SimulationParameters = None
+    model: SafeStr,  
+    dump_mode: SafeStr = Query("geojson", alias="dumpmode"), 
+    datos: SimulationParameters = None,
+    callback_url: SafeStr = Query("geojson", alias="callbackURL"), 
 ):
-    
+
     payload = {
-        "sim_id": datos.sim_id,
         "model": model,
         "dump_mode": dump_mode,
-        "params": datos.dict() 
+        "params": datos.model_dump() if datos else {}, 
+        "persistence_url": "", 
+        "callback_url": callback_url
     }
 
     try:
-        with Connection(settings.RABBIT_URL) as conn:
+        with Connection(RABBIT_URL) as conn:
             producer = conn.Producer(serializer='json')
             producer.publish(
                 payload,
                 exchange=exchange,
-                routing_key=settings.RABBIT_ROUTING_KEY,
+                routing_key=RABBIT_ROUTING_KEY,
                 declare=[queue],
                 retry=True
             )
@@ -119,7 +98,25 @@ def queue_simulation(
             detail=f"Error al conectar con RabbitMQ: {str(e)}"
         )
 
-
 @app.post("/loadParameters")
 def load_parameters():
     return 0
+
+@app.post("/getModels")
+def get_models():
+    return 0
+
+@app.post("/getDumpModes")
+def get_dump_modes():
+    return 0
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    uvicorn.run(
+        "API:app",      
+        host="0.0.0.0",  
+        port=8000,       
+        reload=True,     
+        workers=1       
+    )

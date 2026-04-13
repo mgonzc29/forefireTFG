@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspaces/APIForefire:cached
+    tty: true
+    stdin_open: true
+    command: sleep infinity
+    environment:
+      - NETCDF_HOME=/usr
+      - LD_LIBRARY_PATH=/workspaces/integracionForefire/forefire/lib:/usr/lib/x86_64-linux-gnu
+      - RABBIT_URL=amqp://guest:guest@rabbitmq:5672//
+      - RABBIT_EXCHANGE=simulations_exchange
+      - RABBIT_QUEUE=forefire_simulations_queue
+      - RABBIT_ROUTING_KEY=sim.fire.start
+    env_file:
+      - ../.env
+    depends_on:
+      - rabbitmq
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"

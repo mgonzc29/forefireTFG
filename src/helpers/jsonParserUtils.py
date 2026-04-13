@@ -21,7 +21,7 @@ def get_meteo_data_from_file(meteo_json_path):
                         humidity=valores
                     
                     case "viento":
-                        wind_speed=valores
+                        wind_speed= [x / 3.6 for x in valores] #Convertir de km/h a m/s
                     
                     case "direccionViento":
                         wind_direction=valores
@@ -49,7 +49,7 @@ def get_meteo_data_from_string(meteo_json_string):
                     humidity=valores
                 
                 case "viento":
-                    wind_speed=valores
+                    wind_speed= [x / 3.6 for x in valores] #Convertir de km/h a m/s
                 
                 case "direccionViento":
                     wind_direction=valores

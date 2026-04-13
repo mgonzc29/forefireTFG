@@ -1,21 +1,21 @@
 {
   "name": "PyForeFire DevContainer",
-  "build": {
-    "dockerfile": "../Dockerfile",
-    "context": ".."
-  },
+  "dockerComposeFile": "docker-compose.yaml",
+  "service": "app",
   "workspaceFolder": "/workspaces/APIForefire",
+  
   "settings": {
     "python.defaultInterpreterPath": "/usr/bin/python3"
   },
+  
   "extensions": [
     "ms-python.python",
     "ms-python.vscode-pylance"
   ],
-  "runArgs": [
-    "--env-file","./.env"
-  ],
+
+  // El postCreateCommand ahora se ejecuta dentro del servicio "app" del compose
   "postCreateCommand": "cd bindings/python && python3 setup.py build_ext --inplace && pip3 install -e .",
+
   "remoteEnv": {
     "NETCDF_HOME": "/usr",
     "LD_LIBRARY_PATH": "/workspaces/integracionForefire/forefire/lib:/usr/lib/x86_64-linux-gnu"

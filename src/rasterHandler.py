@@ -8,16 +8,12 @@ from rasterio.transform import rowcol
 from scipy.ndimage import zoom 
 from shapely.geometry import Point, LineString, Polygon
 from affine import Affine
+from exceptions import UnsupportedZoneError
+from helpers.modelsUtils import REGISTRO_MODELOS
 
 def get_r_handler(modelo):
-    from BalbiNov2011.rasterHandlerBalbiNov2011 import RasterHandlerBalbiNov2011
-    #from Farsite.rasterHandlerFarsite import RasterHandlerFarsite
-    modelos = {
-        #"Farsite": RasterHandlerFarsite(),
-        "BalbiNov2011": RasterHandlerBalbiNov2011(),
-        "BalbiNov2011TMdMl": RasterHandlerBalbiNov2011()
-    }
-    return modelos.get(modelo)
+    config = REGISTRO_MODELOS.get(modelo)
+    return config["raster"] if config else None
 
 class RasterHandler:
     def __init__(self):
@@ -28,6 +24,9 @@ class RasterHandler:
 
         wind_layer, moisture_layer, temperature_layer, fuel_layer, altitude_layer, win_convert, crs, bounds = self.preprocess_raster_netCDF(meteo_data, center_coords, radius)
         
+        if not fuel_layer.any():
+            raise UnsupportedZoneError(center_coords[0], center_coords[1])
+
         if firewallsGeometry is not None:
             fwGeom = self.convert_geometry(firewallsGeometry,'EPSG:4326',crs, win_convert)
             fuel_layer = self.set_firewall(fuel_layer,fwGeom)
@@ -70,7 +69,6 @@ class RasterHandler:
             bottom = y - radio
             top = y + radio
             
-
             if src.crs.is_geographic:
                 left, right, bottom, top = self.get_origin_geo(src.crs, left, bottom, right, top)
 
@@ -142,7 +140,7 @@ class RasterHandler:
                 # Polígono
                 firewalls_shapely.append(Polygon(poligon))
             else:
-                # Es una Línea (2 o más puntos no cerrados)
+                # Línea
                 firewalls_shapely.append(LineString(poligon).buffer(grosor))
 
         # Se crea máscara: 0 donde hay cortafuegos, 1 donde no
